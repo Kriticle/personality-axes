@@ -1,0 +1,51 @@
+config: {'target': 'Qwen/Qwen3-0.6B', 'judge': 'Qwen/Qwen3-4B', 'n_roles': 6, 'n_questions': 4, 'max_new_tokens': 96, 'gen_bs': 10, 'act_bs': 10} device: mps torch.bfloat16 torch.bfloat16
+6 roles, 120 rollouts
+W1119 15:45:14.104000 71242 .venv/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/redirects.py:35] NOTE: Redirects are currently not supported in MacOs.
+Loading weights:   0%|          | 0/311 [00:00<?, ?it/s]Loading weights: 100%|██████████| 311/311 [00:00<00:00, 7253.47it/s]
+  generated 10/120
+  generated 20/120
+  generated 30/120
+  generated 40/120
+  generated 50/120
+  generated 60/120
+  generated 70/120
+  generated 80/120
+  generated 90/120
+  generated 100/120
+  generated 110/120
+  generated 120/120
+  activations 10/120
+  activations 20/120
+  activations 30/120
+  activations 40/120
+  activations 50/120
+  activations 60/120
+  activations 70/120
+  activations 80/120
+  activations 90/120
+  activations 100/120
+  activations 110/120
+  activations 120/120
+Loading weights:   0%|          | 0/398 [00:00<?, ?it/s]Loading weights: 100%|██████████| 398/398 [00:00<00:00, 7072.04it/s]
+  judged 10/100
+  judged 20/100
+  judged 30/100
+  judged 40/100
+  judged 50/100
+  judged 60/100
+  judged 70/100
+  judged 80/100
+  judged 90/100
+  judged 100/100
+
+=== RESULT ===
+timings (s): {'generate': 64, 'activations': 14, 'judge': 1628}
+role vectors: {'default': '20/20 all', 'pirate': '14/20 score>=2', 'demon': '13/20 score3', 'oracle': '4/20 score3', 'accountant': '1/20 score>=2', 'poet': '3/20 score3'}
+|cos(PC1, axis)| at layer 14: 0.948
+projection on axis (assistant-like first):
+  default        +9.25
+  oracle         +0.28
+  pirate         -2.39
+  demon          -2.43
+  poet           -3.42
+wrote /Users/kriti/Documents/personality-axes/mini/out
