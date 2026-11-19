@@ -15,11 +15,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 HERE = Path(__file__).resolve().parent
 PRESETS = {
     "local": dict(target="Qwen/Qwen3-0.6B", judge="Qwen/Qwen3-4B", n_roles=6, n_questions=4,
-                  max_new_tokens=96, gen_bs=10, act_bs=10),
-    "kaggle": dict(target="Qwen/Qwen3-1.7B", judge="Qwen/Qwen3-4B", n_roles=40, n_questions=12,
-                   max_new_tokens=192, gen_bs=32, act_bs=16),
+                  max_new_tokens=96, gen_bs=10, act_bs=10, min_count=3),
+    "kaggle": dict(target="Qwen/Qwen3-1.7B", judge="Qwen/Qwen3-4B", n_roles=40, n_questions=40,
+                   max_new_tokens=256, gen_bs=32, act_bs=16, min_count=50),
 }
-ROLE_PICKS = ["pirate", "demon", "oracle", "accountant", "poet", "detective", "wizard", "ghost",
+ROLE_PICKS = ["assistant", "pirate", "demon", "oracle", "accountant", "poet", "detective", "wizard", "ghost",
               "chef", "philosopher", "vampire", "therapist", "comedian", "scientist", "monk", "teacher"]
 
 
@@ -58,7 +58,7 @@ def chat(tok, system, user, answer=None):
 
 
 def select_roles(n_roles):
-    avail = sorted(p.stem for p in (HERE / "roles").glob("*.json") if p.stem not in ("default", "assistant"))
+    avail = sorted(p.stem for p in (HERE / "roles").glob("*.json") if p.stem != "default")
     picks = [r for r in ROLE_PICKS if r in avail]
     rest = [r for r in avail if r not in picks]
     random.Random(0).shuffle(rest)
@@ -139,8 +139,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--preset", choices=PRESETS, default="local")
     ap.add_argument("--out", default=str(HERE / "out"))
-    for k in ("target", "judge", "n_roles", "n_questions", "max_new_tokens", "gen_bs", "act_bs"):
+    for k in PRESETS["local"]:
         ap.add_argument(f"--{k}", type=type(PRESETS["local"][k]))
+    ap.add_argument("--skip_judge", action="store_true", help="stop after generate+activations (judge elsewhere)")
+    ap.add_argument("--scores_file", help="JSON {'role/key': 0-3} overriding judge scores; resumes from checkpoint")
     args = ap.parse_args()
     cfg = {**PRESETS[args.preset], **{k: v for k, v in vars(args).items() if v is not None and k in PRESETS["local"]}}
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
@@ -163,59 +165,79 @@ def main():
         generate(items, tok, model, device, cfg["gen_bs"], cfg["max_new_tokens"]); T["generate"] = time.time() - t
         t = time.time(); activations(items, tok, model, device, cfg["act_bs"]); T["activations"] = time.time() - t
         del model, tok; empty_cache()
+        for it in items:  # fp16 storage halves the checkpoint
+            if it["act"] is not None:
+                it["act"] = it["act"].half()
         torch.save({"items": items, "T": T}, ckpt)
+    dump = lambda: json.dump([{k: v for k, v in it.items() if k != "act"} for it in items],
+                             open(out / "rollouts.json", "w"), indent=1)
+    if args.skip_judge:
+        for it in items: it.setdefault("score", None)
+        dump(); print("stopped before judging; wrote", out / "rollouts.json"); return
 
-    t = time.time(); jtok, jmodel = load(cfg["judge"], device, jdtype)
-    judge(items, jtok, jmodel, device, max(1, cfg["gen_bs"] // 4)); T["judge"] = time.time() - t
-    del jmodel, jtok; empty_cache()
+    if args.scores_file:
+        ext = json.load(open(args.scores_file))
+        for it in items:
+            it["score"] = ext.get(f"{it['role']}/{it['key']}") if it["role"] != "default" else None
+        T["judge"] = 0.0; report["judge"] = f"external: {args.scores_file}"
+    else:
+        t = time.time(); jtok, jmodel = load(cfg["judge"], device, jdtype)
+        judge(items, jtok, jmodel, device, max(1, cfg["gen_bs"] // 4)); T["judge"] = time.time() - t
+        del jmodel, jtok; empty_cache()
+        report["judge"] = cfg["judge"]
+    dump()
 
-    json.dump([{k: v for k, v in it.items() if k != "act"} for it in items], open(out / "rollouts.json", "w"), indent=1)
-
-    # Role vectors: default = mean of all; role = mean of score-3 rollouts (fallback >=2, recorded).
+    # Role vectors, as in the original 4_vectors.py: default = mean of ALL its rollouts;
+    # every other role (incl. "assistant") = mean of rollouts scored exactly 3, kept only if >= min_count.
     vecs, info = {}, {}
     for role in roles:
         rs = [it for it in items if it["role"] == role and it["act"] is not None]
-        if role == "default":
-            chosen, rule = rs, "all"
-        else:
-            chosen, rule = [it for it in rs if it["score"] == 3], "score3"
-            if len(chosen) < 3:
-                chosen, rule = [it for it in rs if (it["score"] or 0) >= 2], "score>=2"
-        info[role] = {"n": len(rs), "used": len(chosen), "rule": rule,
+        chosen = rs if role == "default" else [it for it in rs if it["score"] == 3]
+        info[role] = {"n": len(rs), "n_score3": len(chosen) if role != "default" else None,
+                      "kept": role == "default" or len(chosen) >= cfg["min_count"],
                       "scores": [it["score"] for it in rs]}
-        if len(chosen) >= 3:
-            vecs[role] = torch.stack([it["act"] for it in chosen]).mean(0)
+        if info[role]["kept"] and chosen:
+            vecs[role] = torch.stack([it["act"].float() for it in chosen]).mean(0)
     assert "default" in vecs, "no valid default activations"
     others = [r for r in vecs if r != "default"]
-    assert len(others) >= 2, f"too few role vectors: {info}"
+    assert len(others) >= 3, (f"only {len(others)} roles have >= {cfg['min_count']} score-3 rollouts; "
+                              f"rerun with lower --min_count. counts: "
+                              f"{ {r: i['n_score3'] for r, i in info.items()} }")
     torch.save(vecs, out / "role_vectors.pt")
 
     axis = vecs["default"] - torch.stack([vecs[r] for r in others]).mean(0)  # (L, D)
     torch.save(axis, out / "axis.pt")
 
-    # Check: PC1 of role vectors (incl. default) vs axis, per layer.
-    names = ["default"] + others
-    V = torch.stack([vecs[r] for r in names])  # (R, L, D)
-    L = V.shape[1]; mid = L // 2
-    cos_by_layer = []
-    for l in range(L):
-        X = V[:, l] - V[:, l].mean(0)
+    # Headline check (as for the authors' released vectors): PCA over the ROLE vectors only
+    # (default excluded, else PC1 is pulled toward default by construction), |cos(PC1, axis)|.
+    def pca_check(names, l):
+        X = torch.stack([vecs[r][l] for r in names]); X = X - X.mean(0)
         _, S, Vt = torch.linalg.svd(X, full_matrices=False)
+        ev = S ** 2 / (S ** 2).sum()
         a = axis[l] / axis[l].norm()
-        cos_by_layer.append(abs(float(Vt[0] @ a)))
+        return abs(float(Vt[0] @ a)), float(ev[0]), int((ev.cumsum(0) < 0.7).sum() + 1)
+    L = axis.shape[0]; mid = L // 2
+    roles_only = [pca_check(others, l) for l in range(L)]
+    with_default = [pca_check(["default"] + others, l)[0] for l in range(L)]
     a = axis[mid] / axis[mid].norm()
-    proj = {r: float(vecs[r][mid] @ a) for r in names}
+    proj = {r: float(vecs[r][mid] @ a) for r in ["default"] + others}
     report.update(
-        timings_s=T, roles=info, layer=mid, n_layers=L,
-        cos_pc1_axis_mid=cos_by_layer[mid], cos_pc1_axis_by_layer=cos_by_layer,
+        timings_s=T, roles=info, n_role_vectors=len(others), layer=mid, n_layers=L,
+        cos_pc1_axis_roles_only=roles_only[mid][0], var_pc1_roles_only=roles_only[mid][1],
+        n_pcs_70pct_roles_only=roles_only[mid][2],
+        cos_pc1_axis_roles_only_by_layer=[r[0] for r in roles_only],
+        cos_pc1_axis_with_default_by_layer=with_default,
         axis_norm_by_layer=axis.norm(dim=1).tolist(),
         projection_mid=dict(sorted(proj.items(), key=lambda kv: -kv[1])),
     )
     json.dump(report, open(out / "report.json", "w"), indent=1)
     print("\n=== RESULT ===")
     print("timings (s):", {k: round(v) for k, v in T.items()})
-    print("role vectors:", {r: f"{info[r]['used']}/{info[r]['n']} {info[r]['rule']}" for r in roles})
-    print(f"|cos(PC1, axis)| at layer {mid}: {cos_by_layer[mid]:.3f}")
+    print("score-3 counts:", {r: f"{info[r]['n_score3']}/{info[r]['n']}" for r in roles if r != "default"})
+    print(f"{len(others)} role vectors kept (min_count={cfg['min_count']})")
+    c, v, k = roles_only[mid]
+    print(f"layer {mid}: roles-only |cos(PC1, axis)| = {c:.3f}, PC1 var = {v:.2f}, PCs for 70% = {k}"
+          f"   [authors' Qwen3-32B, layer 32: 0.672, 0.38, 7]")
     print("projection on axis (assistant-like first):")
     for r, p in report["projection_mid"].items():
         print(f"  {r:14s} {p:+.2f}")
