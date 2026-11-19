@@ -41,9 +41,8 @@ def load(name, device, dtype):
     return tok, model
 
 
-def free(*objs):
-    for o in objs:
-        del o
+def empty_cache():
+    import gc; gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     elif torch.backends.mps.is_available():
@@ -105,7 +104,7 @@ def judge(items, tok, model, device, bs):
             ev = json.load(open(HERE / "roles" / f"{it['role']}.json"))["eval_prompt"]
             prompts.append(chat(tok, None, ev.replace("{question}", it["question"]).replace("{answer}", it["answer"])))
         enc = tok(prompts, return_tensors="pt", padding=True).to(device)
-        logits = model(**enc).logits[:, -1, :].float()
+        logits = model(**enc, logits_to_keep=1).logits[:, -1, :].float()
         dl = logits[:, digit_ids]
         for it, d, ok in zip(batch, dl.argmax(-1).tolist(), torch.isfinite(dl).all(-1).tolist()):
             it["score"] = int(d) if ok else None
@@ -154,14 +153,21 @@ def main():
     items = build_items(roles, cfg["n_questions"], cfg["target"])
     print(f"{len(roles)} roles, {len(items)} rollouts", flush=True)
 
-    t = time.time(); tok, model = load(cfg["target"], device, dtype)
-    generate(items, tok, model, device, cfg["gen_bs"], cfg["max_new_tokens"]); T["generate"] = time.time() - t
-    t = time.time(); activations(items, tok, model, device, cfg["act_bs"]); T["activations"] = time.time() - t
-    free(model)
+    ckpt = out / "checkpoint_acts.pt"  # resume point: skips generate+activations if already done
+    if ckpt.exists():
+        saved = torch.load(ckpt, weights_only=False)
+        if [(i["role"], i["key"]) for i in saved["items"]] == [(i["role"], i["key"]) for i in items]:
+            items, T = saved["items"], saved["T"]; print("resumed from", ckpt, flush=True)
+    if "activations" not in T:
+        t = time.time(); tok, model = load(cfg["target"], device, dtype)
+        generate(items, tok, model, device, cfg["gen_bs"], cfg["max_new_tokens"]); T["generate"] = time.time() - t
+        t = time.time(); activations(items, tok, model, device, cfg["act_bs"]); T["activations"] = time.time() - t
+        del model, tok; empty_cache()
+        torch.save({"items": items, "T": T}, ckpt)
 
     t = time.time(); jtok, jmodel = load(cfg["judge"], device, jdtype)
-    judge(items, jtok, jmodel, device, cfg["gen_bs"]); T["judge"] = time.time() - t
-    free(jmodel)
+    judge(items, jtok, jmodel, device, max(1, cfg["gen_bs"] // 4)); T["judge"] = time.time() - t
+    del jmodel, jtok; empty_cache()
 
     json.dump([{k: v for k, v in it.items() if k != "act"} for it in items], open(out / "rollouts.json", "w"), indent=1)
 
