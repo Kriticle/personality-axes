@@ -9,7 +9,7 @@ The project has three parts:
 
 | | Question | Status |
 |---|---|---|
-| **1. Assistant axis** | Reproduce the *Assistant Axis*, the direction separating the default Assistant persona from 276 role-play personas, on Qwen3-8B | calibration done; full 276-role run in progress (48/276) |
+| **1. Assistant axis** | Reproduce the *Assistant Axis*, the direction separating the default Assistant persona from 276 role-play personas, on Qwen3-8B | calibration done; full 276-role run in progress (36/276 complete, 12 more judged and waiting for activations) |
 | **2. Activation capping** | Can clamping activations along that axis keep the model in its Assistant persona when a prompt pushes it into a role? | first result on the calibration axis (below); rerun on the final axis pending |
 | **3. Deception direction** | Is there a direction for **genuine** lies (the model says what it does not believe, under pressure) that is not just "deception topic", uncertainty or length? | design and pre-registered criteria done; Qwen3-8B run in progress on Colab |
 
@@ -18,7 +18,8 @@ The project has three parts:
 ## 1. Assistant axis
 
 **Method** (following *The Assistant Axis: Situating and Stabilizing the Default Persona of Language Models*,
-[`lu-christina/assistant-axis`](https://github.com/lu-christina/assistant-axis)):
+Lu et al., 2026, [arXiv:2601.10387](https://arxiv.org/abs/2601.10387); code
+[`safety-research/assistant-axis`](https://github.com/safety-research/assistant-axis)):
 
 1. For each of 276 roles (pirate, accountant, demon, …) the model answers 24 questions under 5 role system
    prompts, which gives 120 answers per role. The default Assistant is prompted the same way.
@@ -43,6 +44,26 @@ The project has three parts:
 fully in role), demon (77/80) and oracle (70/80) are easy to play, while accountant (8/80) and the "assistant"
 role (26/80) mostly stay in Assistant voice. For reference, in the released Qwen3-32B vectors PC1 has cosine 0.67
 with the Assistant axis. Details: [`out_v8/calib_report.json`](out_v8/calib_report.json).
+
+**First look at the full run.** The plots below use the roles finished so far, projected onto the calibration
+axis. The final axis needs the default-Assistant answers, which are in a chunk that is still running.
+
+![Persona space so far](figures/persona_map.png)
+
+PC1 of the role vectors already has cosine **0.83** with the calibration axis. Expressive, non-human roles
+(aberration, absurdist, caveman, bard, comedian) sit at one end, and professional, helper-like roles (auditor,
+collaborator, biologist, chemist, coach) sit at the Assistant end. This is the "persona space" structure the
+Assistant Axis paper reports.
+
+![How often each role is played fully in character](figures/in_character.png)
+
+Roles close to the Assistant's own job (altruist, advocate, ambassador, collaborator, accountant) are rarely
+played fully in character: the model keeps its Assistant voice. The lowest three (altruist, advocate, ambassador)
+have fewer than 10 score-3 answers, too few for a reliable role vector, so they are left out of the map.
+
+*Data check that caught a bug.* In the first chunk the GPU judge crashed partway through and left 12 roles with
+empty score files. Those roles were then counted as finished, with no in-character answers behind them. Empty
+score files now count as unjudged; those 12 roles were re-judged blind and are queued for a new activations pass.
 
 ## 2. Activation capping
 
@@ -103,15 +124,17 @@ Assistant persona related to lying?
 | [`deception_mask/`](deception_mask/) | MASK deception study: design, pipeline, Kaggle and Colab runners |
 | [`axes/`](axes/) | Contrastive prompt specs for instructed deception and self-preservation, plus literature notes |
 | [`mini/`](mini/) | Minimal single-GPU reproduction with plain `transformers` (Qwen3-0.6B / 1.7B) |
-| [`results/`](results/), [`figures/`](figures/) | Result summaries and the script that draws the figures |
+| [`results/`](results/), [`figures/`](figures/) | Result summaries; `figures/compute_persona_map.py` (needs torch) and `figures/make_figures.py` (matplotlib) regenerate the charts |
 | [`out/calib`](out/calib), [`out_v8`](out_v8) | Calibration answers, judge scores and report |
 | [`kernel_debug/`](kernel_debug/) | Repro for a CUDA launch failure in the activation step on split T4s |
 | [`dataset/`](dataset/) | The upstream pipeline packaged as a Kaggle dataset |
 
 ## Credits
 
-- Assistant Axis method, pipeline code and role/question data:
-  [`lu-christina/assistant-axis`](https://github.com/lu-christina/assistant-axis) (packaged in `dataset/`).
+- Assistant Axis method, pipeline code and role/question data: Lu et al., 2026,
+  [arXiv:2601.10387](https://arxiv.org/abs/2601.10387) and
+  [`safety-research/assistant-axis`](https://github.com/safety-research/assistant-axis) (packaged in `dataset/`).
+  Released vectors and capping configs: [`lu-christina/assistant-axis-vectors`](https://huggingface.co/datasets/lu-christina/assistant-axis-vectors).
 - MASK benchmark: Ren et al., 2025 ([`cais/MASK`](https://huggingface.co/datasets/cais/MASK)).
 - Deception-probe controls follow lessons from Goldowsky-Dill et al., 2025 (Apollo) and related work.
   See [`axes/LITERATURE.md`](axes/LITERATURE.md).

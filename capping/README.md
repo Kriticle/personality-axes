@@ -1,7 +1,7 @@
 # Activation capping
 
 [`capping_core.py`](capping_core.py) builds a capping config in the same format as the released Qwen3-32B one
-(`lu-christina/assistant-axis-vectors`). It has one vector per layer, `v = −axis[L]`, and experiments
+([`lu-christina/assistant-axis-vectors`](https://huggingface.co/datasets/lu-christina/assistant-axis-vectors)). It has one vector per layer, `v = −axis[L]`, and experiments
 `layers_{a}:{b}-p{q}` that cap layers a…b−1 at the q-quantile of reference projections on `v̂`. The reference
 population is per-answer mean activations over role and default answers.
 

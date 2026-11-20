@@ -152,7 +152,8 @@ def progress():  # any saved stage counts as progress (c01 v2 generated 24 roles
 
 def _has(kind, r):
     ext = {'responses': '.jsonl', 'scores': '.json', 'activations': '.pt'}[kind]
-    return (STATE / kind / f'{r}{ext}').exists()
+    f = STATE / kind / f'{r}{ext}'
+    return f.exists() and (kind != 'scores' or f.stat().st_size > 2)   # {} = judge died, not scored
 
 
 def needs_score(r):

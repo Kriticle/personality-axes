@@ -35,7 +35,8 @@ for k, d in D.items():
     for role in MY_ROLES:
         hits = glob.glob(f'{state}/**/{k}/{role}{EXT[k]}', recursive=True) if state else []
         if hits: shutil.copy(hits[0], f'{d}/{role}{EXT[k]}')
-have = lambda k, role: os.path.exists(f"{D[k]}/{role}{EXT[k]}")
+# an empty score file ({}: the judge died before scoring) is NOT scored -- c00 v2 shipped 12 such roles
+have = lambda k, role: os.path.exists(f"{D[k]}/{role}{EXT[k]}") and (k != 'scores' or os.path.getsize(f"{D[k]}/{role}{EXT[k]}") > 2)
 needs_score = lambda role: role != 'default'
 log('restored: responses', sum(have('responses', x) for x in MY_ROLES), 'scores', sum(have('scores', x) for x in MY_ROLES),
     'activations', sum(have('activations', x) for x in MY_ROLES), 'of', len(MY_ROLES))

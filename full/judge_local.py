@@ -16,11 +16,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 STATE, WORK = ROOT / 'state', ROOT / 'judge_work'
-ROLES = ROOT / 'runs' / 'c01' / 'aa' / 'data' / 'roles' / 'instructions'
+CODE_ZIP = ROOT.parent / 'dataset' / 'assistant-axis-code.zip'   # upstream pipeline + role data
 
 
 def rubric(role):
-    t = json.load(open(ROLES / f'{role}.json'))['eval_prompt']
+    import zipfile
+    with zipfile.ZipFile(CODE_ZIP) as z:
+        t = json.loads(z.read(f'data/roles/instructions/{role}.json'))['eval_prompt']
     head = t.split('Prompt:')[0].strip()
     tail = t.split('[ANSWER END]')[-1].strip()
     return head, tail
@@ -32,7 +34,8 @@ def key(e):
 
 def todo():
     r = sorted(Path(f).stem for f in glob.glob(str(STATE / 'responses' / '*.jsonl')))
-    return [x for x in r if not x.startswith('default') and not (STATE / 'scores' / f'{x}.json').exists()]
+    sc = lambda x: STATE / 'scores' / f'{x}.json'
+    return [x for x in r if not x.startswith('default') and not (sc(x).exists() and sc(x).stat().st_size > 2)]
 
 
 def prep(role):
