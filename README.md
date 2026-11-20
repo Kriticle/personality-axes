@@ -11,7 +11,7 @@ The project has three parts:
 |---|---|---|
 | **1. Assistant axis** | Reproduce the *Assistant Axis*, the direction separating the default Assistant persona from 276 role-play personas, on Qwen3-8B | calibration done; full 276-role run in progress (36/276 complete, 12 more judged and waiting for activations) |
 | **2. Activation capping** | Can clamping activations along that axis keep the model in its Assistant persona when a prompt pushes it into a role? | first result on the calibration axis (below); rerun on the final axis pending |
-| **3. Deception direction** | Is there a direction for **genuine** lies (the model says what it does not believe, under pressure) that is not just "deception topic", uncertainty or length? | Qwen3-8B run done: **fails** 2 of 6 pre-registered criteria (no direction beats response length by the required margin) |
+| **3. Deception direction** | Is there a direction for **genuine** lies (the model says what it does not believe, under pressure) that is not just "deception topic", uncertainty or length? | Qwen3-8B run done: the pre-registered mean-difference direction **fails** 2 of 6 criteria; a trained linear probe passes all 6 (exploratory, needs confirming) |
 
 ---
 
@@ -135,9 +135,27 @@ What this means:
   [`results/deception_report_qwen3_8b.json`](results/deception_report_qwen3_8b.json),
   [`results/deception_judge_audit.json`](results/deception_judge_audit.json).
 
-Next: nonlinear or per-token probes, and checking whether the 0.69 direction still steers behaviour (the WSP
-weight edit) even though it is a weak detector. Once the full axis is done: the cosine between the deception
-direction and the Assistant axis.
+**Follow-up (exploratory, not pre-registered): a trained linear probe passes all six.** The pre-registered
+direction was a plain difference of means. An L2 logistic-regression probe on the same activations, with the same
+scenario-grouped out-of-fold scoring ([`deception_mask/linear_probe.py`](deception_mask/linear_probe.py)), does much
+better at layer 22:
+
+| | Within-prompt AUROC |
+|---|---|
+| Difference-of-means direction (pre-registered) | 0.69 |
+| **Trained linear probe** | **0.86** |
+| Length + entropy alone | 0.65 |
+| Same probe on shuffled labels (should be ~0.5) | 0.53 |
+
+Adding length and entropy as extra inputs leaves it at 0.86. Its cosine with the topic direction is −0.01. At a
+threshold with 1% false alarms on ordinary chat, it catches 85% of lies and flags 3/46 honest confessions. It is
+nearly orthogonal to both the mean-difference (0.16) and the instructed (0.02) directions. Caveat: the
+regularisation strength was picked on the same out-of-fold scores (all settings tried gave 0.82–0.86), so this
+needs confirming on fresh data. And a readable direction is not yet a used one: the WSP / steering test decides
+that. Data: [`results/deception_linear_probe.json`](results/deception_linear_probe.json).
+
+Next: confirm the probe on held-out MASK items, then steer along it (WSP). Once the full axis is done: the
+cosine between the deception direction and the Assistant axis.
 
 ---
 
