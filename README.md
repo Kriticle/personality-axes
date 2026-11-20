@@ -154,7 +154,24 @@ regularisation strength was picked on the same out-of-fold scores (all settings 
 needs confirming on fresh data. And a readable direction is not yet a used one: the WSP / steering test decides
 that. Data: [`results/deception_linear_probe.json`](results/deception_linear_probe.json).
 
-Next: confirm the probe on held-out MASK items, then steer along it (WSP). Once the full axis is done: the
+**Confirmation (protocol committed before it was run, `7033b4d`).**
+
+| Test | Probe, within-prompt AUROC (95% CI) | Length + entropy |
+|---|---|---|
+| **Sealed holdout:** 25% of scenarios locked away; layer and regularisation chosen on the other 75% only | **0.92** (0.83–0.98), 21 mixed prompts; overall AUROC 0.82 | 0.48 |
+| **Cross-subset:** train where the model's belief is its own knowledge, test where the fact is given in the prompt | 0.67 (0.56–0.77), 62 mixed prompts | 0.67 |
+
+- **It holds on unseen scenarios of the same kind.** The sealed holdout picked layer 22 on its own, and the
+  probe scores 0.92 on scenarios it never saw. A shuffled-label probe scores 0.49.
+- **It does not transfer to a different kind of lie.** A probe trained on lies about what the model knows does
+  no better than length on lies that contradict a fact given in the prompt. These may be two different
+  mechanisms ("misreport my belief" vs "contradict my context"), or the smaller training set (859 answers) may
+  limit it.
+
+Data: [`results/deception_probe_confirm.json`](results/deception_probe_confirm.json).
+
+Next: steer along the layer-22 probe (WSP) to test whether the model *uses* it, and train on all subsets
+together to see whether one direction covers both kinds of lie. Once the full axis is done: the
 cosine between the deception direction and the Assistant axis.
 
 ---

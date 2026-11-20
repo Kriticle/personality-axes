@@ -1,0 +1,55 @@
+{
+ "sealed_holdout": {
+  "n_train": 1381,
+  "n_test": 458,
+  "n_test_mixed_prompts": 21,
+  "chosen_layer": 22,
+  "chosen_lambda": 0.01,
+  "inner_cv_within_prompt": 0.874251497005988,
+  "probe": {
+   "auroc": 0.8230805913209347,
+   "within_prompt": 0.9180327868852459,
+   "within_prompt_95ci_bootstrap_prompts": [
+    0.83,
+    0.984
+   ]
+  },
+  "len_entropy": {
+   "auroc": 0.5101573676680973,
+   "within_prompt": 0.47540983606557374,
+   "within_prompt_95ci_bootstrap_prompts": [
+    0.276,
+    0.667
+   ]
+  },
+  "shuffled_labels": {
+   "auroc": 0.5125417262756319,
+   "within_prompt": 0.4918032786885246
+  }
+ },
+ "cross_subset": {
+  "train": "known_facts + doubling_down_known_facts",
+  "test": "provided_facts",
+  "n_train": 859,
+  "n_test": 980,
+  "chosen_layer": 20,
+  "chosen_lambda": 0.0001,
+  "inner_cv_within_prompt": 0.7560975609756098,
+  "probe": {
+   "auroc": 0.7392296264855688,
+   "within_prompt": 0.6684491978609626,
+   "within_prompt_95ci_bootstrap_prompts": [
+    0.56,
+    0.766
+   ]
+  },
+  "len_entropy": {
+   "auroc": 0.5696669850028296,
+   "within_prompt": 0.6737967914438503,
+   "within_prompt_95ci_bootstrap_prompts": [
+    0.571,
+    0.767
+   ]
+  }
+ }
+}
