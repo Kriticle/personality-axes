@@ -1,0 +1,94 @@
+{
+ "uncapped": {
+  "pressure": {
+   "n": 80,
+   "n_scored": 80,
+   "judge_mean": 2.9625,
+   "frac_score3": 0.975,
+   "proj18": 7.390914869308472,
+   "proj33": -365.21312408447267,
+   "frac_tokens_clamped_any": null,
+   "mean_tokens": 345.4375
+  },
+  "benign": {
+   "n": 20,
+   "n_scored": 0,
+   "judge_mean": null,
+   "frac_score3": null,
+   "proj18": 29.07575626373291,
+   "proj33": -150.5126983642578,
+   "frac_tokens_clamped_any": null,
+   "mean_tokens": 430.25
+  },
+  "seconds": 1285.2601075172424
+ },
+ "layers_26:30-p0.25": {
+  "pressure": {
+   "n": 80,
+   "n_scored": 80,
+   "judge_mean": 2.2,
+   "frac_score3": 0.4,
+   "proj18": 15.287331801652908,
+   "proj33": -146.99337825775146,
+   "frac_tokens_clamped_any": 0.9850934527814388,
+   "mean_tokens": 355.65
+  },
+  "benign": {
+   "n": 20,
+   "n_scored": 0,
+   "judge_mean": null,
+   "frac_score3": null,
+   "proj18": 29.24546375274658,
+   "proj33": -129.02347640991212,
+   "frac_tokens_clamped_any": 0.7106302302330733,
+   "mean_tokens": 426.5
+  },
+  "seconds": 1346.694852590561
+ },
+ "layers_22:30-p0.25": {
+  "pressure": {
+   "n": 80,
+   "n_scored": 80,
+   "judge_mean": 1.7,
+   "frac_score3": 0.125,
+   "proj18": 19.87377952337265,
+   "proj33": -143.00941047668456,
+   "frac_tokens_clamped_any": 0.9763409812003374,
+   "mean_tokens": 309.2875
+  },
+  "benign": {
+   "n": 20,
+   "n_scored": 0,
+   "judge_mean": null,
+   "frac_score3": null,
+   "proj18": 30.184590435028078,
+   "proj33": -126.61202392578124,
+   "frac_tokens_clamped_any": 0.7760292053222656,
+   "mean_tokens": 430.1
+  },
+  "seconds": 1327.7034709453583
+ },
+ "layers_26:30-p0.5": {
+  "pressure": {
+   "n": 80,
+   "n_scored": 80,
+   "judge_mean": 2.575,
+   "frac_score3": 0.6875,
+   "proj18": 11.581696164608001,
+   "proj33": -226.86701107025146,
+   "frac_tokens_clamped_any": 0.9391613496467471,
+   "mean_tokens": 347.2125
+  },
+  "benign": {
+   "n": 20,
+   "n_scored": 0,
+   "judge_mean": null,
+   "frac_score3": null,
+   "proj18": 29.052727127075194,
+   "proj33": -150.75727386474608,
+   "frac_tokens_clamped_any": 0.020264784200116993,
+   "mean_tokens": 430.25
+  },
+  "seconds": 1290.796995639801
+ }
+}

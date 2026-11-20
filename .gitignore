@@ -10,3 +10,9 @@ deception_mask/out_*/
 full/judge_work/
 deception_mask/deception_colab_results.zip
 mini/kaggle/out_v2/out/checkpoint_acts.pt
+
+# local copies of the upstream repo and pulled kernels (see README: credits)
+out/aa/
+out_v1/
+pulled/
+00_calibrate.v1.ipynb

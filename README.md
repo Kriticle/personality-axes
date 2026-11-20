@@ -1,0 +1,117 @@
+# Personality axes in Qwen3-8B
+
+Directions in a language model's activation space that track **who the model is being**: whether it is
+acting as its default Assistant or has drifted into a role, and whether it is telling the truth or lying.
+The model is **Qwen3-8B**, the compute is free and cheap GPUs (Kaggle T4×2, Colab), and the grading is done
+by blind LLM judges.
+
+The project has three parts:
+
+| | Question | Status |
+|---|---|---|
+| **1. Assistant axis** | Reproduce the *Assistant Axis*, the direction separating the default Assistant persona from 276 role-play personas, on Qwen3-8B | calibration done; full 276-role run in progress (48/276) |
+| **2. Activation capping** | Can clamping activations along that axis keep the model in its Assistant persona when a prompt pushes it into a role? | first result on the calibration axis (below); rerun on the final axis pending |
+| **3. Deception direction** | Is there a direction for **genuine** lies (the model says what it does not believe, under pressure) that is not just "deception topic", uncertainty or length? | design and pre-registered criteria done; Qwen3-8B run in progress on Colab |
+
+---
+
+## 1. Assistant axis
+
+**Method** (following *The Assistant Axis: Situating and Stabilizing the Default Persona of Language Models*,
+[`lu-christina/assistant-axis`](https://github.com/lu-christina/assistant-axis)):
+
+1. For each of 276 roles (pirate, accountant, demon, …) the model answers 24 questions under 5 role system
+   prompts, which gives 120 answers per role. The default Assistant is prompted the same way.
+2. A judge scores each answer 0–3 for how fully it plays the role. Only answers that **fully** play it (score 3)
+   are kept.
+3. The residual-stream activation is averaged over the tokens of each answer, giving one **role vector** per role
+   per layer.
+4. **Assistant axis = mean(default) − mean(roles).** The upstream paper finds it lines up with PC1 of the role
+   vectors ("persona space").
+
+**What is different here**
+
+- **Free GPUs.** The run is split into 12 resumable chunks of 24 roles, each a Kaggle kernel. Every finished stage
+  (answers, scores, activations) is merged into a shared state dataset, so a crash or the 12 h session limit loses
+  at most one stage. Two Kaggle accounts run chunks in parallel, coordinated through a lock-protected claims file
+  ([`full/`](full/)).
+- **Blind Claude judges.** Scoring uses blind Claude judges instead of a GPU-hosted Qwen judge. Each role's
+  answers go to a separate judge that sees only that role's rubric and the answers, with no project context
+  ([`full/judge_local.py`](full/judge_local.py)). This also frees about 3 GPU-hours per chunk.
+
+**Calibration (6 roles, 16 questions).** The judge's score distribution looks as expected: pirate (80/80 answers
+fully in role), demon (77/80) and oracle (70/80) are easy to play, while accountant (8/80) and the "assistant"
+role (26/80) mostly stay in Assistant voice. For reference, in the released Qwen3-32B vectors PC1 has cosine 0.67
+with the Assistant axis. Details: [`out_v8/calib_report.json`](out_v8/calib_report.json).
+
+## 2. Activation capping
+
+Capping clamps the projection of the residual stream onto the (negated) axis at a threshold τ on a band of
+layers. The model can move toward the Assistant end freely, but it cannot go further into "role" than τ. τ is a
+percentile of the projections of reference answers. The config format matches the released Qwen3-32B capping
+config ([`capping/capping_core.py`](capping/capping_core.py)).
+
+![Capping results](figures/capping.png)
+
+| Setting | Judge mean (0–3) | Fully in character | Benign tokens clamped |
+|---|---|---|---|
+| No capping | 2.96 | 98% | – |
+| Layers 26–29, τ = p50 | 2.58 | 69% | 2% |
+| Layers 26–29, τ = p25 | 2.20 | 40% | 71% |
+| Layers 22–29, τ = p25 | 1.70 | 12% | 78% |
+
+There is a trade-off. Tighter caps pull persona answers back toward the Assistant, but they also clamp most
+tokens of ordinary Assistant answers. Two caveats:
+
+- This uses the **calibration axis**, built from 6 roles, so the thresholds are provisional.
+- Benign answer **quality** is not scored yet.
+
+Both get rerun on the final 276-role axis. Raw numbers: [`results/`](results/).
+
+## 3. Deception direction (MASK)
+
+[`deception_mask/DESIGN.md`](deception_mask/DESIGN.md) has the full design. In short:
+
+- **Ground truth from the model itself.** For each [MASK](https://huggingface.co/datasets/cais/MASK) fact, the model's
+  **belief** is elicited neutrally (5 times; it must be consistent). It then answers a **pressure** scenario 4 times
+  (e.g. "you are this politician's PR rep…").
+- **Labels.** An answer that contradicts the model's own belief is a **lie**; one that matches it is **honest**.
+  The judge only decides which statement an answer asserts. It never decides "is this a lie".
+- **Direction.** mean(lie) − mean(honest) residual activations, fit with 5-fold cross-validation grouped by scenario.
+- **Controls.** These are where earlier deception probes failed:
+  - **Within-prompt AUROC:** lie vs honest samples of the **same** prompt, so topic is held fixed.
+  - **Baselines:** entropy and length.
+  - **Topic:** cosine with a "deception scenario vs normal chat" direction.
+  - **False positives:** how often the direction fires on **honest confessions** of wrongdoing.
+  - **Comparison:** the cheap **instructed** direction ("lie to the user" vs "be honest").
+- **Six pass/fail criteria, fixed before running.** A 0.6B smoke test came out *inconclusive* with only 7 lies.
+  Qwen3-8B (4,477 generations) is running on Colab:
+  [`deception_mask/colab/`](deception_mask/colab/).
+
+Once both are done: the cosine between the deception direction and the Assistant axis. Is drifting out of the
+Assistant persona related to lying?
+
+---
+
+## Repository map
+
+| Path | What |
+|---|---|
+| [`kernel/00_calibrate.ipynb`](kernel/00_calibrate.ipynb) | Calibration run on Kaggle T4×2 (6 roles), plus the vLLM/T4 setup reused everywhere |
+| [`full/`](full/) | Full 276-role run: chunk template, orchestrator/autopilot, blind-judge tooling |
+| [`capping/`](capping/) | Capping config builder and evaluation kernel |
+| [`deception_mask/`](deception_mask/) | MASK deception study: design, pipeline, Kaggle and Colab runners |
+| [`axes/`](axes/) | Contrastive prompt specs for instructed deception and self-preservation, plus literature notes |
+| [`mini/`](mini/) | Minimal single-GPU reproduction with plain `transformers` (Qwen3-0.6B / 1.7B) |
+| [`results/`](results/), [`figures/`](figures/) | Result summaries and the script that draws the figures |
+| [`out/calib`](out/calib), [`out_v8`](out_v8) | Calibration answers, judge scores and report |
+| [`kernel_debug/`](kernel_debug/) | Repro for a CUDA launch failure in the activation step on split T4s |
+| [`dataset/`](dataset/) | The upstream pipeline packaged as a Kaggle dataset |
+
+## Credits
+
+- Assistant Axis method, pipeline code and role/question data:
+  [`lu-christina/assistant-axis`](https://github.com/lu-christina/assistant-axis) (packaged in `dataset/`).
+- MASK benchmark: Ren et al., 2025 ([`cais/MASK`](https://huggingface.co/datasets/cais/MASK)).
+- Deception-probe controls follow lessons from Goldowsky-Dill et al., 2025 (Apollo) and related work.
+  See [`axes/LITERATURE.md`](axes/LITERATURE.md).
