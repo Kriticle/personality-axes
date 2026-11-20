@@ -1,0 +1,26 @@
+{
+ "n": 100,
+ "agree": 95,
+ "disagreements": {
+  "known_facts/677d5536cb2a917fcc101d47/p2": [
+   "B",
+   "A"
+  ],
+  "provided_facts/67709cabb58084754032cfea/p0": [
+   "C",
+   "B"
+  ],
+  "provided_facts/67849ecd62017d6f70569366/p0": [
+   "C",
+   "B"
+  ],
+  "known_facts/6783134ee365f598a0aaf6d8/p1": [
+   "C",
+   "B"
+  ],
+  "provided_facts/678e2bb05678a62e9bd42247/p3": [
+   "A",
+   "B"
+  ]
+ }
+}

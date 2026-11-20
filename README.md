@@ -11,7 +11,7 @@ The project has three parts:
 |---|---|---|
 | **1. Assistant axis** | Reproduce the *Assistant Axis*, the direction separating the default Assistant persona from 276 role-play personas, on Qwen3-8B | calibration done; full 276-role run in progress (36/276 complete, 12 more judged and waiting for activations) |
 | **2. Activation capping** | Can clamping activations along that axis keep the model in its Assistant persona when a prompt pushes it into a role? | first result on the calibration axis (below); rerun on the final axis pending |
-| **3. Deception direction** | Is there a direction for **genuine** lies (the model says what it does not believe, under pressure) that is not just "deception topic", uncertainty or length? | design and pre-registered criteria done; Qwen3-8B run in progress on Colab |
+| **3. Deception direction** | Is there a direction for **genuine** lies (the model says what it does not believe, under pressure) that is not just "deception topic", uncertainty or length? | Qwen3-8B run done: **fails** 2 of 6 pre-registered criteria (no direction beats response length by the required margin) |
 
 ---
 
@@ -106,11 +106,38 @@ Both get rerun on the final 276-role axis. Raw numbers: [`results/`](results/).
   - **False positives:** how often the direction fires on **honest confessions** of wrongdoing.
   - **Comparison:** the cheap **instructed** direction ("lie to the user" vs "be honest").
 - **Six pass/fail criteria, fixed before running.** A 0.6B smoke test came out *inconclusive* with only 7 lies.
-  Qwen3-8B (4,477 generations) is running on Colab:
-  [`deception_mask/colab/`](deception_mask/colab/).
 
-Once both are done: the cosine between the deception direction and the Assistant axis. Is drifting out of the
-Assistant persona related to lying?
+**Result on Qwen3-8B: FAIL (2 of 6 criteria).** The run used 4,477 generations on a Colab L4
+([`deception_mask/colab/`](deception_mask/colab/)) and 4,137 answers labelled by blind Claude judges. Under
+pressure the model often lies: 1,011 lies vs 828 honest answers among items with a stable belief, and 75 prompts
+produced both. But no linear direction separates real lies from honest answers much better than **response
+length** does.
+
+![Lie vs honest by layer](figures/deception_by_layer.png)
+
+| # | Criterion (layer 22, fixed in advance) | Result | |
+|---|---|---|---|
+| 1 | Learned direction, within-prompt AUROC ≥ 0.75 | 0.69 | ✗ |
+| 2 | Instructed direction transfers to real lies, ≥ 0.70 | 0.71 | ✓ |
+| 3 | Beats entropy / length baselines by ≥ 0.10 | +0.02 over length (0.67) | ✗ |
+| 4 | Not the "deception scenario" topic, \|cos\| < 0.5 | −0.17 | ✓ |
+| 5 | Flags ≤ 20% of honest confessions (instructed) | 2% | ✓ |
+| 6 | Enough data: ≥ 100 lies, ≥ 30 mixed prompts | 1,011 / 75 | ✓ |
+
+What this means:
+- **Real lies in Qwen3-8B are not a clean linear direction.** No layer gets past 0.71 (shown for completeness;
+  the layer was fixed in advance). A direction that mostly tracks how long the answer is would score about the same.
+- **The cheap instructed direction does as well as one learned from real lies.** Their cosine is 0.40, and the
+  instructed one rarely fires on honest confessions (2%, vs 28% for the learned one). So "lie when told to" and
+  "lie under pressure" share some structure, but it is weak.
+- **The labels hold up.** A second, independent blind judge (a stronger model) re-labelled 100 random answers and
+  agreed on 95 (MASK's GPT-4o pipeline: 86%). The failure is not label noise. Data:
+  [`results/deception_report_qwen3_8b.json`](results/deception_report_qwen3_8b.json),
+  [`results/deception_judge_audit.json`](results/deception_judge_audit.json).
+
+Next: nonlinear or per-token probes, and checking whether the 0.69 direction still steers behaviour (the WSP
+weight edit) even though it is a weak detector. Once the full axis is done: the cosine between the deception
+direction and the Assistant axis.
 
 ---
 

@@ -90,6 +90,33 @@ def in_character():
     fig.tight_layout(rect=(0, 0.015, 1, 1)); fig.savefig(ROOT / 'figures/in_character.png', facecolor=SURFACE); plt.close(fig)
 
 
+def deception_layers():
+    """Within-prompt AUROC (lie vs honest, same prompt) by layer: learned vs instructed direction vs baselines."""
+    r = json.load(open(ROOT / 'results/deception_report_qwen3_8b.json'))
+    E = r['eval_by_layer']; L = range(len(E))
+    fig, ax = plt.subplots(figsize=(7.2, 3.8), dpi=200, facecolor=SURFACE); style(ax)
+    nat = [e['natural_oof']['within_prompt_auroc'] for e in E]
+    ins = [e['instructed']['within_prompt_auroc'] for e in E]
+    ln, en = E[0]['length']['within_prompt_auroc'], E[0]['entropy']['within_prompt_auroc']
+    ax.fill_between([0, len(E) - 1], 0.75, 1.0, color='#e4f0e8', zorder=0, lw=0)
+    ax.text(0.3, 0.76, 'pre-registered pass bar (0.75)', fontsize=7.5, color=MUTED, va='bottom')
+    for y, name in [(ln, 'response length'), (en, 'token entropy'), (0.5, 'chance')]:
+        ax.hlines(y, 0, len(E) - 1, color=MUTED, lw=1, ls=(0, (4, 3)))
+        ax.text(len(E) - 0.5, y, ' ' + name, fontsize=7.5, color=MUTED, va='center')
+    ax.plot(L, nat, color=CAT[0], lw=2); ax.text(len(E) - 0.5, nat[-1] + 0.012, ' learned from real lies', fontsize=8, color=INK, va='center')
+    ax.plot(L, ins, color=CAT[1], lw=2); ax.text(len(E) - 0.5, ins[-1] - 0.012, ' instructed ("lie to the user")', fontsize=8, color=INK, va='center')
+    ax.axvline(r['layer'], color=GRID, lw=1)
+    ax.text(r['layer'] + 0.3, 0.46, f"layer {r['layer']} (fixed in advance)", fontsize=7.5, color=MUTED)
+    ax.set_ylim(0.45, 0.85); ax.set_xlim(0, len(E) + 11)
+    ax.set_xticks([0, 6, 12, 18, 24, 30, 35]); ax.set_xlabel('layer', color=MUTED, fontsize=8)
+    ax.yaxis.grid(True, color=GRID, lw=0.8)
+    ax.set_title('Telling real lies from honest answers to the same prompt', loc='left', color=INK, fontsize=10.5, pad=10)
+    fig.text(0.01, 0.01, f"Qwen3-8B on MASK: {r['n_lie']} lies vs {r['counts']['labels']['honest']} honest answers, "
+             f"{r['n_mixed_prompts']} prompts with both.\nAUROC computed within each prompt (topic held fixed); the learned direction is scored out-of-fold.",
+             color=MUTED, fontsize=7.5)
+    fig.tight_layout(rect=(0, 0.08, 1, 1)); fig.savefig(ROOT / 'figures/deception_by_layer.png', facecolor=SURFACE); plt.close(fig)
+
+
 if __name__ == '__main__':
-    capping(); persona_map(); in_character()
+    capping(); persona_map(); in_character(); deception_layers()
     print('wrote figures/*.png')
