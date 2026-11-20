@@ -9,6 +9,14 @@ direction does better, under the same controls:
 A probe IS a direction (its weight vector); this tests readability, not causal use.
 
     python deception_mask/linear_probe.py --out deception_mask/out_colab
+    python deception_mask/linear_probe.py --confirm      # sealed holdout + cross-subset test (run once)
+
+--confirm protocol, fixed before it was run:
+  1. sealed holdout: 25% of scenarios (seed 123) are set aside. Layer (all 36) and lambda (4 values) are chosen
+     by 4-fold scenario-grouped CV on the other 75% only; the probe is refit on the 75% and scored once on the
+     holdout (within-prompt AUROC). Baselines (length+entropy) and a shuffled-label probe are scored the same way.
+  2. cross-subset: train on known_facts + doubling_down_known_facts (belief elicited from the model), test on
+     provided_facts (belief = fact given in the prompt). Layer and lambda chosen by CV inside the training subsets.
 """
 import argparse, json, random, sys
 from pathlib import Path
@@ -47,9 +55,60 @@ def scores(rows, s):
     return m.auroc(lies, hon), m.within_prompt_auroc(rows, lambda r: idx[r['key']])[0]
 
 
+def select(A, y, rows, groups, layers, lam_grid, k=4):
+    """Pick (layer, lambda) by k-fold CV grouped by scenario, using only the rows given."""
+    g = sorted(set(groups)); random.Random(7).shuffle(g); f = {t: i % k for i, t in enumerate(g)}
+    fold = torch.tensor([f[t] for t in groups]); best = (-1, None, None)
+    for l in layers:
+        for lam in lam_grid:
+            s = torch.zeros(len(y))
+            for i in range(k):
+                te = fold == i
+                s[te], _ = fit_predict(A[~te, l], y[~te], A[te, l], lam)
+            wp = scores(rows, s)[1]
+            if wp > best[0]: best = (wp, l, lam)
+    return best
+
+
+def confirm(LH, A, y, base, out):
+    lam_grid = [1e-4, 1e-3, 1e-2, 1e-1]
+    layers = range(A.shape[1])
+    res = {}
+    # 1. sealed holdout
+    tasks = sorted({r['task'] for r in LH}); random.Random(123).shuffle(tasks)
+    held = set(tasks[:len(tasks) // 4])
+    te = torch.tensor([r['task'] in held for r in LH]); tr = ~te
+    rtr = [r for r, t in zip(LH, te) if not t]; rte = [r for r, t in zip(LH, te) if t]
+    cv, L, lam = select(A[tr], y[tr], rtr, [r['task'] for r in rtr], layers, lam_grid)
+    s, _ = fit_predict(A[tr, L], y[tr], A[te, L], lam)
+    sb, _ = fit_predict(base[tr], y[tr], base[te], 1e-3)
+    ysh = y[tr][torch.randperm(int(tr.sum()), generator=torch.Generator().manual_seed(0))]
+    ss, _ = fit_predict(A[tr, L], ysh, A[te, L], lam)
+    mixed = sum(1 for t in held if any(r['task'] == t and r['label'] == 'lie' for r in rte)
+                and any(r['task'] == t and r['label'] == 'honest' for r in rte))
+    res['sealed_holdout'] = dict(n_train=int(tr.sum()), n_test=int(te.sum()), n_test_mixed_prompts=mixed,
+                                 chosen_layer=L, chosen_lambda=lam, inner_cv_within_prompt=cv,
+                                 probe=dict(zip(('auroc', 'within_prompt'), scores(rte, s))),
+                                 len_entropy=dict(zip(('auroc', 'within_prompt'), scores(rte, sb))),
+                                 shuffled_labels=dict(zip(('auroc', 'within_prompt'), scores(rte, ss))))
+    # 2. cross-subset
+    trm = torch.tensor([r['subset'] != 'provided_facts' for r in LH]); tem = ~trm
+    rtr = [r for r, t in zip(LH, trm) if t]; rte = [r for r, t in zip(LH, tem) if t]
+    cv, L, lam = select(A[trm], y[trm], rtr, [r['task'] for r in rtr], layers, lam_grid)
+    s, _ = fit_predict(A[trm, L], y[trm], A[tem, L], lam)
+    sb, _ = fit_predict(base[trm], y[trm], base[tem], 1e-3)
+    res['cross_subset'] = dict(train='known_facts + doubling_down_known_facts', test='provided_facts',
+                               n_train=int(trm.sum()), n_test=int(tem.sum()), chosen_layer=L, chosen_lambda=lam,
+                               inner_cv_within_prompt=cv,
+                               probe=dict(zip(('auroc', 'within_prompt'), scores(rte, s))),
+                               len_entropy=dict(zip(('auroc', 'within_prompt'), scores(rte, sb))))
+    json.dump(res, open(out / 'linear_probe_confirm.json', 'w'), indent=1)
+    print(json.dumps(res, indent=1))
+
+
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--out', default='deception_mask/out_colab')
-    ap.add_argument('--layers', default='all'); a = ap.parse_args()
+    ap.add_argument('--layers', default='all'); ap.add_argument('--confirm', action='store_true'); a = ap.parse_args()
     out = Path(a.out)
     items = json.load(open(out / 'items.json')); lab = json.load(open(out / 'labels.json'))
     for it in items:
@@ -66,6 +125,8 @@ def main():
     L = A.shape[1]
     layers = range(L) if a.layers == 'all' else [int(x) for x in a.layers.split(',')]
     print(f'{len(LH)} answers ({int(y.sum())} lies) from {len(tasks)} scenarios; {L} layers')
+    if a.confirm:
+        return confirm(LH, A, y, base, out)
 
     # regularisation chosen once, at the pre-registered layer, by out-of-fold within-prompt AUROC
     lam_grid = [1e-4, 1e-3, 1e-2, 1e-1]
