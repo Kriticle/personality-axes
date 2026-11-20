@@ -97,6 +97,12 @@ log('restored: responses', sum(have('responses', x) for x in MY_ROLES), 'scores'
 def reserve(n_roles):  # time still needed to judge + extract n_roles
     return n_roles * (EST['judge_role'] + EST['act_role']) + EST['fixed']
 
+# T4s have no P2P: vLLM's custom all-reduce intermittently fails at start-up (c01 v1)
+_g = f'{AA}/assistant_axis/generation.py'; _s = open(_g).read()
+if 'disable_custom_all_reduce' not in _s:
+    open(_g, 'w').write(_s.replace('trust_remote_code=True,', 'trust_remote_code=True, disable_custom_all_reduce=True,', 1))
+
+GPU_JUDGE = False
 # ---- 1. generate, in sub-batches, under the time guard ----
 todo = [x for x in MY_ROLES if not have('responses', x)]
 pending_downstream = lambda: [x for x in MY_ROLES if have('responses', x) and not have('activations', x)]
@@ -106,8 +112,17 @@ while todo:
     if el() + need > DEADLINE:
         log(f'time guard: not starting generation for {batch}; {len(todo)} roles left for a later run'); break
     t = time.time()
-    run(f"python 1_generate.py --model {TARGET} --output_dir {D['responses']} --question_count {QCOUNT} "
-        f"--tensor_parallel_size 2 --gpu_memory_utilization 0.90 --roles {' '.join(batch)}")
+    for attempt in range(2):   # c01 v1 died at engine start-up (custom_all_reduce 'invalid argument'); one retry
+        try:
+            run(f"python 1_generate.py --model {TARGET} --output_dir {D['responses']} --question_count {QCOUNT} "
+                f"--tensor_parallel_size 2 --gpu_memory_utilization 0.85 --roles {' '.join(batch)}",
+                {'PYTORCH_CUDA_ALLOC_CONF': 'expandable_segments:True'})   # 0.90 OOMed mid-batch in c00 v1
+            ok = True
+        except AssertionError as e:
+            log('generate failed:', e); ok = False
+        subprocess.run("pkill -9 -f 'VLLM::' ; pkill -9 -f 'EngineCore'", shell=True)   # a crashed engine leaves workers holding the GPUs
+        wait_gpus_free()
+        if ok or all(have('responses', x) for x in batch): break
     done = [x for x in batch if have('responses', x)]
     if done: EST['gen_role'] = max(EST['gen_role'] * 0.5, (time.time() - t - EST['gen_load']) / len(done))
     log('generated', done, f"~{EST['gen_role']:.0f}s/role")
@@ -116,16 +131,27 @@ while todo:
 
 # ---- 2. judge ----
 to_judge = [x for x in MY_ROLES if have('responses', x) and needs_score(x) and not have('scores', x)]
+if not GPU_JUDGE:   # scores come from blind Claude judges run locally (full/judge_local.py) and arrive via the state dataset
+    log('GPU judge off; waiting for local scores on', to_judge); to_judge = []
+srv = None
 if to_judge and el() + reserve(len(pending_downstream())) < DEADLINE:
-    srv = subprocess.Popen(f"python -m vllm.entrypoints.openai.api_server --model {JUDGE} --tensor-parallel-size 2 "
-                           f"--max-model-len 4096 --dtype half --gpu-memory-utilization 0.90 --port 8000",
-                           shell=True, stdout=open('/kaggle/working/judge_server.log', 'w'), stderr=subprocess.STDOUT,
-                           start_new_session=True)
     import urllib.request, signal
-    for _ in range(180):
-        try: urllib.request.urlopen('http://localhost:8000/health'); break
-        except Exception: time.sleep(10)
-    else: raise RuntimeError(open('/kaggle/working/judge_server.log').read()[-3000:])
+    def start_judge():
+        srv = subprocess.Popen(f"python -m vllm.entrypoints.openai.api_server --model {JUDGE} --tensor-parallel-size 2 --disable-custom-all-reduce "
+                               f"--max-model-len 4096 --dtype half --gpu-memory-utilization 0.85 --max-num-seqs 64 --port 8000",
+                               shell=True, stdout=open('/kaggle/working/judge_server.log', 'w'), stderr=subprocess.STDOUT,
+                               start_new_session=True)
+        for _ in range(180):
+            if srv.poll() is not None: break
+            try: urllib.request.urlopen('http://localhost:8000/health'); return srv
+            except Exception: time.sleep(10)
+        log('judge server failed to start:', open('/kaggle/working/judge_server.log').read()[-1500:])
+        try: os.killpg(srv.pid, signal.SIGKILL)
+        except ProcessLookupError: pass
+        subprocess.run("pkill -9 -f 'vllm.entrypoints' ; pkill -9 -f 'VLLM::' ", shell=True); wait_gpus_free()
+    # c01 v2: 0.90 + 256-seq sampler warm-up OOMed at start-up; one retry, then save what we have instead of crashing
+    srv = start_judge() or start_judge()
+if to_judge and el() + reserve(len(pending_downstream())) < DEADLINE and srv:
     JENV = {'OPENAI_BASE_URL': 'http://localhost:8000/v1', 'OPENAI_API_KEY': 'EMPTY', 'JUDGE_TEMPERATURE': '0'}
     roles_arg = ' '.join(to_judge)
     try:

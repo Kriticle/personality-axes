@@ -4,3 +4,9 @@ __pycache__/
 .venv/
 mini/.venv/
 mini/out/*.pt
+
+deception_mask/data/
+deception_mask/out_*/
+full/judge_work/
+deception_mask/deception_colab_results.zip
+mini/kaggle/out_v2/out/checkpoint_acts.pt
