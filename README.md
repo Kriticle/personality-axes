@@ -11,7 +11,7 @@ The project has three parts:
 |---|---|---|
 | **1. Assistant axis** | Reproduce the *Assistant Axis*, the direction separating the default Assistant persona from 276 role-play personas, on Qwen3-8B | calibration done; full 276-role run in progress (36/276 complete, 12 more judged and waiting for activations) |
 | **2. Activation capping** | Can clamping activations along that axis keep the model in its Assistant persona when a prompt pushes it into a role? | first result on the calibration axis (below); rerun on the final axis pending |
-| **3. Deception direction** | Is there a direction for **genuine** lies (the model says what it does not believe, under pressure) that is not just "deception topic", uncertainty or length? | Qwen3-8B run done: the pre-registered mean-difference direction **fails** 2 of 6 criteria; a trained linear probe passes all 6 (exploratory, needs confirming) |
+| **3. Deception direction** | Is there a direction for **genuine** lies (the model says what it does not believe, under pressure) that is not just "deception topic", uncertainty or length? | Qwen3-8B run done: the pre-registered mean-difference direction **fails** 2 of 6 criteria; a trained linear probe reads lies (0.92 on a sealed holdout) but capping along it does not reduce lying |
 
 ---
 
@@ -170,8 +170,27 @@ that. Data: [`results/deception_linear_probe.json`](results/deception_linear_pro
 
 Data: [`results/deception_probe_confirm.json`](results/deception_probe_confirm.json).
 
-Next: steer along the layer-22 probe (WSP) to test whether the model *uses* it, and train on all subsets
-together to see whether one direction covers both kinds of lie. Once the full axis is done: the
+**Capping along the lie direction does not reduce lying.** The lie probes at layers 19–23 were refit on training
+scenarios only, with caps set on a separate calibration slice. Then Qwen3-8B answered the 122 sealed held-out
+pressure prompts 4 times each under three settings, with identical sampling seeds. All answers were judged blind
+with the settings shuffled together ([`deception_mask/capping/`](deception_mask/capping/)):
+
+| Setting | Tokens clamped / layer | Lie rate (95% CI) | Evasive | Benign quality (1–5) |
+|---|---|---|---|---|
+| No cap | – | 51.2% (42–60) | 5.5% | 4.03 |
+| Loose (cap at honest p90) | 11% | 51.8% (43–60) | 7.0% | 4.05 |
+| Tight (cap at honest median) | 22% | 52.5% (44–61) | 7.2% | 4.05 |
+
+The cap engages and changes the text (59% of tight-capped answers differ from uncapped), but the lie rate does not
+move, in any subset. Ordinary answers are unaffected. So **the lie direction is readable but not used**: clamping
+it does not stop the model from lying. Possible reasons: the information also lives elsewhere and the model routes
+around a 5-layer clamp; per-token values differ from the per-answer means the caps were set on; or the probe reads
+a consequence of deciding to lie, not the cause. Data:
+[`results/deception_lie_capping.json`](results/deception_lie_capping.json).
+
+Next: a dose-response steering test (subtract increasing multiples of the direction at every token) to find out
+whether any push along it changes behaviour. Then the trait-style version: does a prompt's lie *rate* track its
+projection? Once the full axis is done: the
 cosine between the deception direction and the Assistant axis.
 
 ---
