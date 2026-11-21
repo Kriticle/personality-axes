@@ -6,7 +6,9 @@ import base64, io, json, zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-FILES = ['lie_cap.py', 'caps.pt', 'prompts.json', 'benign.json']
+import sys
+STEER = '--steer' in sys.argv
+FILES = ['lie_cap.py', 'steer.pt' if STEER else 'caps.pt', 'prompts.json', 'benign.json']
 buf = io.BytesIO()
 with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
     for f in FILES:
@@ -23,15 +25,16 @@ Does clamping the residual stream along the layer-19–23 lie-probe directions m
 - **Benign check:** 40 ordinary questions.
 - **Configs:** none / loose (cap at the honest p90) / tight (cap at the honest median), with the same sampling seeds.
 
-Runtime → A100 (L4 works, slower). Saves to `MyDrive/deception_mask/lie_capping`, resumes on **Run all**.
+Runtime → A100 (L4 works, slower). Saves to Google Drive under `MyDrive/deception_mask/`, resumes on **Run all**.
 Judging and analysis run on the Mac."""),
     code("""import subprocess, torch
 print(subprocess.run(['nvidia-smi', '--query-gpu=name,memory.total', '--format=csv'], capture_output=True, text=True).stdout)
 assert torch.cuda.is_available() and torch.cuda.is_bf16_supported(), 'Need an A100 / L4 runtime'
 mem = torch.cuda.get_device_properties(0).total_memory / 2**30"""),
-    code("""from google.colab import drive
+    code(f"""from google.colab import drive
 drive.mount('/content/drive')
-OUT = '/content/drive/MyDrive/deception_mask/lie_capping'
+OUT = '/content/drive/MyDrive/deception_mask/{'lie_steering' if STEER else 'lie_capping'}'
+CAPS = '{'steer.pt' if STEER else 'caps.pt'}'
 import os; os.makedirs(OUT, exist_ok=True); print(OUT, os.listdir(OUT))"""),
     code(f"""import base64, io, zipfile
 BLOB = '{blob}'
@@ -40,7 +43,7 @@ zipfile.ZipFile(io.BytesIO(base64.b64decode(BLOB))).extractall('/content/lc'); p
     code("""import sys, time
 BS = '32' if mem > 30 else '16'
 def go(prompts, sub, k):
-    cmd = [sys.executable, '-u', '/content/lc/lie_cap.py', '--caps', '/content/lc/caps.pt', '--prompts', f'/content/lc/{prompts}',
+    cmd = [sys.executable, '-u', '/content/lc/lie_cap.py', '--caps', '/content/lc/' + CAPS, '--prompts', f'/content/lc/{prompts}',
            '--out', f'{OUT}/{sub}', '--k', str(k), '--bs', BS]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     log = open(f'{OUT}/run.log', 'a'); n = 0
@@ -51,13 +54,13 @@ def go(prompts, sub, k):
             if n % 10: continue
         print(line, end='', flush=True)
     assert p.wait() == 0, sub + ' failed'
-go('prompts.json', 'pressure', 4)   # 122 prompts x 4 samples x 3 configs"""),
-    code("""go('benign.json', 'benign', 1)        # 40 questions x 3 configs
+go('prompts.json', 'pressure', 4)   # 122 prompts x 4 samples x every config"""),
+    code("""go('benign.json', 'benign', 1)        # 40 questions x every config
 open(f'{OUT}/DONE', 'w').write('done'); print('DONE ->', OUT)"""),
 ]
 nb = {'cells': cells, 'metadata': {'accelerator': 'GPU', 'colab': {'provenance': [], 'gpuType': 'A100'},
                                    'kernelspec': {'name': 'python3', 'display_name': 'Python 3'}},
       'nbformat': 4, 'nbformat_minor': 0}
-out = HERE / 'lie_capping_colab.ipynb'
+out = HERE / ('lie_steering_colab.ipynb' if STEER else 'lie_capping_colab.ipynb')
 json.dump(nb, open(out, 'w'), indent=1)
 print('wrote', out, out.stat().st_size // 1024, 'KB')

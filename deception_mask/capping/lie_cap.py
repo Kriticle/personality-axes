@@ -6,6 +6,7 @@ so the model can move freely toward "honest" but not past tau_L toward "lie". Sa
 capping, with the lie probe instead of -axis.
 
 Configs: none | loose (tau = honest p90) | tight (tau = honest p50). Every config uses the same sampling seeds.
+With a steering file (prepare_steer.py, has 'configs'): h <- h + coef * gap_L * u_L at each layer instead.
 
     python lie_cap.py --caps caps.pt --prompts prompts.json --out OUT [--k 4] [--bs 16] [--model Qwen/Qwen3-8B]
 """
@@ -22,6 +23,16 @@ class Capper:
         if mode == 'none':
             return
         layers = model.model.layers
+        if 'configs' in caps:                              # additive steering file (prepare_steer.py)
+            coef = caps['configs'][mode]
+            for L in caps['layers']:
+                v = (coef * caps['gap'][L] * caps['directions'][L]).to(model.device, torch.float32)
+                def add(_m, _i, out, v=v):
+                    h = out[0] if isinstance(out, tuple) else out
+                    h.add_(v.to(h.dtype))
+                    return out
+                self.handles.append(layers[L].register_forward_hook(add))
+            return
         for L in caps['layers']:
             u = caps['directions'][L].to(model.device, torch.float32)
             tau = caps['tau'][mode][L]
@@ -67,7 +78,7 @@ def main():
     ap.add_argument('--caps', required=True); ap.add_argument('--prompts', required=True); ap.add_argument('--out', required=True)
     ap.add_argument('--model', default='Qwen/Qwen3-8B'); ap.add_argument('--k', type=int, default=4)
     ap.add_argument('--bs', type=int, default=16); ap.add_argument('--max_new', type=int, default=256)
-    ap.add_argument('--configs', default='none,loose,tight'); ap.add_argument('--limit', type=int, default=0)
+    ap.add_argument('--configs', default=''); ap.add_argument('--limit', type=int, default=0)
     a = ap.parse_args()
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     caps = torch.load(a.caps); prompts = json.load(open(a.prompts))
@@ -77,7 +88,8 @@ def main():
     dt = torch.bfloat16 if (torch.cuda.is_available() and torch.cuda.is_bf16_supported()) else torch.float32
     dev = 'cuda' if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else 'cpu')
     model = AutoModelForCausalLM.from_pretrained(a.model, dtype=dt).to(dev).eval()
-    for cfg in a.configs.split(','):
+    cfgs = a.configs.split(',') if a.configs else (list(caps['configs']) if 'configs' in caps else ['none', 'loose', 'tight'])
+    for cfg in cfgs:
         f = out / f'answers_{cfg}.json'
         if f.exists():
             print('skip', cfg, '(done)'); continue

@@ -30,7 +30,8 @@ Judge every item on its own."""
 
 def load(run, kind):
     out = {}
-    for c in CONFIGS:
+    found = sorted(f.stem[len('answers_'):] for f in (Path(run) / kind).glob('answers_*.json'))
+    for c in [c for c in CONFIGS if c in found] + [c for c in found if c not in CONFIGS]:
         f = Path(run) / kind / f'answers_{c}.json'
         if f.exists():
             out[c] = json.load(open(f))
