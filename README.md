@@ -11,7 +11,7 @@ The project has three parts:
 |---|---|---|
 | **1. Assistant axis** | Reproduce the *Assistant Axis*, the direction separating the default Assistant persona from 276 role-play personas, on Qwen3-8B | calibration done; full 276-role run in progress (36/276 complete, 12 more judged and waiting for activations) |
 | **2. Activation capping** | Can clamping activations along that axis keep the model in its Assistant persona when a prompt pushes it into a role? | first result on the calibration axis (below); rerun on the final axis pending |
-| **3. Deception direction** | Is there a direction for **genuine** lies (the model says what it does not believe, under pressure) that is not just "deception topic", uncertainty or length? | Qwen3-8B run done: the pre-registered mean-difference direction **fails** 2 of 6 criteria; a trained linear probe reads lies (0.92 on a sealed holdout) but capping along it does not reduce lying |
+| **3. Deception direction** | Is there a direction for **genuine** lies (the model says what it does not believe, under pressure) that is not just "deception topic", uncertainty or length? | Qwen3-8B run done: the pre-registered mean-difference direction **fails** 2 of 6 criteria; a trained linear probe reads lies (0.92 on a sealed holdout) but capping along it does not reduce lying; steering along the mean-difference direction at ×1 **cuts lying 51% → 37%** |
 
 ---
 
@@ -188,10 +188,37 @@ around a 5-layer clamp; per-token values differ from the per-answer means the ca
 a consequence of deciding to lie, not the cause. Data:
 [`results/deception_lie_capping.json`](results/deception_lie_capping.json).
 
-Next: a dose-response steering test (subtract increasing multiples of the direction at every token) to find out
-whether any push along it changes behaviour. Then the trait-style version: does a prompt's lie *rate* track its
-projection? Once the full axis is done: the
-cosine between the deception direction and the Assistant axis.
+**Steering along the mean-difference direction does reduce lying.** The literature (Geometry of Truth, ITI) finds
+mean-difference directions more causal than logistic-regression ones, and here the two are nearly orthogonal
+(cos 0.16–0.24). So the same test was repeated with additive steering: at layers 19–23 add
+`coef × gap_L × û_L` at every token. Here û_L is the unit mean(lie) − mean(honest) direction on the fit scenarios,
+and gap_L is the lie–honest gap along it, about 8% of the residual norm. Negative coef pushes toward honest. Same
+122 held-out prompts × 4 samples, same seeds, all 2,440 answers plus 200 benign answers judged blind and shuffled
+together ([`prepare_steer.py`](deception_mask/capping/prepare_steer.py)):
+
+| Setting | Lie rate (95% CI) | Evasive | Benign quality (1–5) |
+|---|---|---|---|
+| No steering | 51.3% (43–59) | 7% | 4.28 |
+| Honest ×1 | **36.9% (29–45)** | 7% | 3.88 |
+| Honest ×2 | 37.0% (28–46) | 28% | 1.57 |
+| Honest ×4 | – (all output broken) | 100% | 1.07 |
+| Lie ×2 | 86% of the few non-evasive answers | 88% | 1.43 |
+
+- **Honest ×1 lowers lying by 14 points.** The paired bootstrap over prompts gives −14.4 points (95% CI −21 to
+  −8). Evasion does not rise, so the model is not just dodging, and benign answers stay usable (3.88 vs 4.28).
+- **The effect is in the context-contradiction scenarios.** In `provided_facts` the lie rate falls from 61% to 37%,
+  and in `known_facts` from 36% to 29%. `doubling_down` does not move (48% → 52%).
+- **Larger pushes break the model.** At ×2 and above it degenerates. Pushing toward lie at ×2 also mostly breaks
+  it, though the few coherent answers are almost all lies.
+
+So the direction that classifies best (the LR probe) is not the one the model uses. The plain mean-difference
+direction, which failed the pre-registered *reading* criteria, does have a causal effect on lying at a dose that
+keeps the model working. Caveat: there is no random-direction control yet. A push of the same size along a random
+direction could also change behaviour. Data: [`results/deception_lie_steering.json`](results/deception_lie_steering.json).
+
+Next: a random-direction control at the ×1 dose, and finer doses between ×1 and ×2. Then the trait-style version:
+does a prompt's lie *rate* track its projection? Once the full axis is done: the cosine between the deception
+direction and the Assistant axis.
 
 ---
 
